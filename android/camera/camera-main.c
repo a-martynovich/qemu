@@ -5,7 +5,14 @@
 
 unsigned long   android_verbose;
 
-void read_frame(CameraDevice* cd, unsigned pixel_format, unsigned width, unsigned height, uint8_t* video_frame) {
+struct Camera {
+	CameraDevice* device;
+	// CameraInfo camera_info;
+	unsigned width, height, pixel_format, frame_size;
+	uint8_t* frame;
+};
+
+void read_frame(struct Camera* camera/*CameraDevice* cd, unsigned pixel_format, unsigned width, unsigned height, uint8_t* video_frame*/) {
 	ClientFrameBuffer fbs[2];
     int fbs_num = 0, repeat = 0;
     size_t payload_size;
@@ -14,13 +21,13 @@ void read_frame(CameraDevice* cd, unsigned pixel_format, unsigned width, unsigne
 
     /* --------- camera-service.c --------------------------- */
 	/* ------------------------------------------------------ */
-    fbs[fbs_num].pixel_format = pixel_format;
-    fbs[fbs_num].framebuffer = video_frame;
+    fbs[fbs_num].pixel_format = camera->pixel_format;
+    fbs[fbs_num].framebuffer = camera->frame;
     fbs_num++;
 
     /* Capture new frame. */
     tick = _get_timestamp();
-    repeat = camera_device_read_frame(cd, fbs, fbs_num,
+    repeat = camera_device_read_frame(camera->device, fbs, fbs_num,
                                       r_scale, g_scale, b_scale, exp_comp);
 
     /* Note that there is no (known) way how to wait on next frame being
@@ -38,7 +45,7 @@ void read_frame(CameraDevice* cd, unsigned pixel_format, unsigned width, unsigne
            (_get_timestamp() - tick) < 2000000LL) {
         /* Sleep for 10 millisec before repeating the attempt. */
         _camera_sleep(10);
-        repeat = camera_device_read_frame(cd, fbs, fbs_num,
+        repeat = camera_device_read_frame(camera->device, fbs, fbs_num,
                                           r_scale, g_scale, b_scale, exp_comp);
     }
     /* ------------------------------------------------------ */
@@ -51,12 +58,17 @@ void read_frame(CameraDevice* cd, unsigned pixel_format, unsigned width, unsigne
     }
 }
 
+int andy_camera_connect() {
+
+}
+
 int main(int argc, char** argv) {
 	CameraDevice* cd;
 	const int max = 10;
 	int cis_n, i, width, height;
 	unsigned target_pixel_format = V4L2_PIX_FMT_NV21;
 	CameraInfo cis[10];
+	struct Camera camera;
 
 	cis_n = enumerate_camera_devices(cis, max);
 	assert(cis_n >= 0);
@@ -94,8 +106,11 @@ int main(int argc, char** argv) {
 	assert(cd != NULL);
 
 	{
-		unsigned video_frame_size, pixel_num = width * height;
-		uint8_t*            video_frame;
+		camera.device = cd;
+		camera.width = width;
+		camera.height = height;
+		camera.pixel_format = target_pixel_format;
+		unsigned pixel_num = width * height;
 		FILE* out = fopen("camera.bin", "wb");
 
 	    switch (target_pixel_format) {
@@ -103,20 +118,20 @@ int main(int argc, char** argv) {
 	        case V4L2_PIX_FMT_YVU420:
 	        case V4L2_PIX_FMT_NV12:
 	        case V4L2_PIX_FMT_NV21:
-	            video_frame_size = (pixel_num * 12) / 8;
+	            camera.frame_size = (pixel_num * 12) / 8;
 	            break;
 	        case V4L2_PIX_FMT_BGR32:
 	        case V4L2_PIX_FMT_RGB32:
-	        	video_frame_size = pixel_num * 4;
+	        	camera.frame_size = pixel_num * 4;
 	            break;
 	        // TODO: add more formats
 	    }
-		video_frame = (uint8_t*)malloc(video_frame_size);
-		assert( camera_device_start_capturing(cd, cis[0].pixel_format, width, height) == 0 );
+		camera.frame = (uint8_t*)malloc(camera.frame_size);
+		assert( camera_device_start_capturing(camera.device, camera.pixel_format, camera.width, camera.height) == 0 );
 
 		while(true) {
-			read_frame(cd, target_pixel_format, width, height, video_frame);
-			fwrite(video_frame, video_frame_size, 1, out);
+			read_frame(&camera);
+			fwrite(camera.frame, camera.frame_size, 1, out);
 			fflush(out);
 		}
 	}
