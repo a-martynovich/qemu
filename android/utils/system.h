@@ -103,7 +103,9 @@ extern char*  win32_strsep(char**  pline, const char*  delim);
 /** Handle strcasecmp on Windows
  **/
 #ifdef _WIN32
-#  define  strcasecmp  stricmp
+#  ifndef strcasecmp
+#    define  strcasecmp  stricmp
+#  endif
 #endif
 
 /** EINTR HANDLING
